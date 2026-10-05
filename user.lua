@@ -1,3 +1,4 @@
+```
 local HttpService = game:GetService("HttpService")
 local TweenService = game:GetService("TweenService")
 local TeleportService = game:GetService("TeleportService")
@@ -361,8 +362,7 @@ local function createServerEntry(serverData)
     clone.Parent = ServerListFrame
 
     local serverInfoLabel = clone:FindFirstChild("ServerInfo")
-    serverInfoLabel.Text = string.format("Server: %s | gameId: %s (ServerId: %s)
-👥 %d / %d",
+    serverInfoLabel.Text = string.format("Server: %s | gameId: %s (ServerId: %s)\n👥 %d / %d",
         gameName, tostring(game.PlaceId), tostring(serverData.id), serverData.playing, serverData.maxPlayers)
     local joinButton = clone:FindFirstChild("Join")
     joinButton.MouseButton1Click:Connect(function()

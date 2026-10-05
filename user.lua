@@ -250,8 +250,7 @@ ServerInfo.BackgroundTransparency = 1
 ServerInfo.Position = UDim2.new(0, 25, 0, 0)
 ServerInfo.Size = UDim2.new(0.76, 0, 1, 0)
 ServerInfo.Font = Enum.Font.GothamMedium
-ServerInfo.Text = string.format("Server: %s | gameId: %s (ServerId: %s)
-👥 %d / %d", gameName, tostring(game.PlaceId), "N/A", 0, 0)
+ServerInfo.Text = string.format("Server: %s | gameId: %s (ServerId: %s)\n👥 %d / %d",
 ServerInfo.TextColor3 = Color3.fromRGB(231, 232, 239)
 ServerInfo.TextSize = 10
 ServerInfo.TextWrapped = true
@@ -407,6 +406,6 @@ spawn(function()
         end
     end
 end)
-
+    
 MakeDraggable(MainFrame)
 MakeDraggable(HideShow)

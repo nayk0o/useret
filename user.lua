@@ -1,39 +1,98 @@
+--// Server Finder - Modern UI
+--// Paste this entire script directly into your executor.
+--// The script itself does not call loadstring().
+
 local HttpService = game:GetService("HttpService")
 local TweenService = game:GetService("TweenService")
 local TeleportService = game:GetService("TeleportService")
 local Players = game:GetService("Players")
 local MarketplaceService = game:GetService("MarketplaceService")
 local UserInputService = game:GetService("UserInputService")
-local LocalPlayer = Players.LocalPlayer
 
-local requestFunc = nil
-if syn and syn.request then
-    requestFunc = syn.request
-elseif http and http.request then
-    requestFunc = http.request
-elseif http_request then
-    requestFunc = http_request
-elseif fluxus and fluxus.request then
-    requestFunc = fluxus.request
-elseif request then
-    requestFunc = request
-else
-    error("No supported HTTP request function found! 😢")
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+--// Prevent duplicate UI
+local oldGui = PlayerGui:FindFirstChild("LowServerFinder")
+if oldGui then
+    oldGui:Destroy()
 end
 
-local gameName = "Unknown"
+--// HTTP request compatibility
+local requestFunc
+if typeof(syn) == "table" and typeof(syn.request) == "function" then
+    requestFunc = syn.request
+elseif typeof(http) == "table" and typeof(http.request) == "function" then
+    requestFunc = http.request
+elseif typeof(http_request) == "function" then
+    requestFunc = http_request
+elseif typeof(fluxus) == "table" and typeof(fluxus.request) == "function" then
+    requestFunc = fluxus.request
+elseif typeof(request) == "function" then
+    requestFunc = request
+end
+
+if not requestFunc then
+    warn("[ServerFinder] No supported HTTP request function found in this environment.")
+end
+
+--// Game information
+local gameName = "Unknown Game"
 pcall(function()
     local info = MarketplaceService:GetProductInfo(game.PlaceId)
-    gameName = info.Name or gameName
+    if info and info.Name then
+        gameName = info.Name
+    end
 end)
 
-local function MakeDraggable(guiObject)
-    local dragging, dragInput, dragStart, startPos
+--// Helpers
+local function create(className, properties, parent)
+    local object = Instance.new(className)
+    for property, value in pairs(properties or {}) do
+        object[property] = value
+    end
+    object.Parent = parent
+    return object
+end
+
+local function addCorner(parent, radius)
+    return create("UICorner", {
+        CornerRadius = UDim.new(0, radius)
+    }, parent)
+end
+
+local function addStroke(parent, color, thickness, transparency)
+    return create("UIStroke", {
+        Color = color,
+        Thickness = thickness,
+        Transparency = transparency or 0
+    }, parent)
+end
+
+local function tween(object, time, properties, easingStyle, easingDirection)
+    local info = TweenInfo.new(
+        time or 0.2,
+        easingStyle or Enum.EasingStyle.Quad,
+        easingDirection or Enum.EasingDirection.Out
+    )
+    local animation = TweenService:Create(object, info, properties)
+    animation:Play()
+    return animation
+end
+
+local function makeDraggable(guiObject)
+    local dragging = false
+    local dragInput
+    local dragStart
+    local startPos
+
     guiObject.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
             dragging = true
             dragStart = input.Position
-            startPos = guiObject.AbsolutePosition
+            startPos = guiObject.Position
+
             input.Changed:Connect(function()
                 if input.UserInputState == Enum.UserInputState.End then
                     dragging = false
@@ -41,444 +100,650 @@ local function MakeDraggable(guiObject)
             end)
         end
     end)
+
     guiObject.InputChanged:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        if input.UserInputType == Enum.UserInputType.MouseMovement
+            or input.UserInputType == Enum.UserInputType.Touch then
             dragInput = input
         end
     end)
+
     UserInputService.InputChanged:Connect(function(input)
-        if input == dragInput and dragging then
+        if dragging and input == dragInput then
             local delta = input.Position - dragStart
-            guiObject.Position = UDim2.new(0, startPos.X + delta.X, 0, startPos.Y + delta.Y)
+            guiObject.Position = UDim2.new(
+                startPos.X.Scale,
+                startPos.X.Offset + delta.X,
+                startPos.Y.Scale,
+                startPos.Y.Offset + delta.Y
+            )
         end
     end)
 end
 
-local LowServerFinder = Instance.new("ScreenGui")
-LowServerFinder.Name = "LowServerFinder"
-LowServerFinder.Parent = LocalPlayer:WaitForChild("PlayerGui")
-LowServerFinder.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-LowServerFinder.ResetOnSpawn = false
+--// Colors
+local BG = Color3.fromRGB(13, 14, 19)
+local PANEL = Color3.fromRGB(18, 19, 27)
+local PANEL_2 = Color3.fromRGB(22, 23, 32)
+local PANEL_3 = Color3.fromRGB(28, 29, 40)
+local BORDER = Color3.fromRGB(45, 47, 61)
+local TEXT = Color3.fromRGB(242, 243, 248)
+local MUTED = Color3.fromRGB(125, 129, 147)
+local ACCENT = Color3.fromRGB(113, 96, 240)
+local ACCENT_HOVER = Color3.fromRGB(132, 115, 255)
+local GREEN = Color3.fromRGB(75, 220, 145)
+local RED = Color3.fromRGB(218, 70, 90)
 
---// Modern UI
-local MainFrame = Instance.new("Frame")
-MainFrame.Name = "MainFrame"
-MainFrame.Parent = LowServerFinder
-MainFrame.BackgroundColor3 = Color3.fromRGB(15, 16, 22)
-MainFrame.BorderSizePixel = 0
-MainFrame.Position = UDim2.new(0.5, -400, 0.5, -250)
-MainFrame.Size = UDim2.new(0, 800, 0, 500)
+--// Root
+local ScreenGui = create("ScreenGui", {
+    Name = "LowServerFinder",
+    ResetOnSpawn = false,
+    ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+}, PlayerGui)
 
-local MainCorner = Instance.new("UICorner")
-MainCorner.CornerRadius = UDim.new(0, 18)
-MainCorner.Parent = MainFrame
+--// Main window
+local MainFrame = create("Frame", {
+    Name = "MainFrame",
+    BackgroundColor3 = BG,
+    BorderSizePixel = 0,
+    Position = UDim2.new(0.5, -410, 0.5, -270),
+    Size = UDim2.new(0, 820, 0, 540)
+}, ScreenGui)
+addCorner(MainFrame, 18)
+addStroke(MainFrame, BORDER, 1.5, 0.15)
 
-local MainStroke = Instance.new("UIStroke")
-MainStroke.Color = Color3.fromRGB(55, 58, 75)
-MainStroke.Thickness = 1.5
-MainStroke.Transparency = 0.15
-MainStroke.Parent = MainFrame
-
-local Shadow = Instance.new("ImageLabel")
-Shadow.Name = "Shadow"
-Shadow.Parent = MainFrame
-Shadow.BackgroundTransparency = 1
-Shadow.Position = UDim2.new(0, -30, 0, -30)
-Shadow.Size = UDim2.new(1, 60, 1, 60)
-Shadow.ZIndex = 0
-Shadow.Image = "rbxassetid://6014261993"
-Shadow.ImageColor3 = Color3.fromRGB(0, 0, 0)
-Shadow.ImageTransparency = 0.55
-Shadow.ScaleType = Enum.ScaleType.Slice
-Shadow.SliceCenter = Rect.new(49, 49, 450, 450)
+--// Subtle top accent line
+local AccentLine = create("Frame", {
+    BackgroundColor3 = ACCENT,
+    BorderSizePixel = 0,
+    Position = UDim2.new(0, 18, 0, 0),
+    Size = UDim2.new(1, -36, 0, 3),
+    ZIndex = 5
+}, MainFrame)
+addCorner(AccentLine, 2)
 
 --// Sidebar
-local Sidebar = Instance.new("Frame")
-Sidebar.Parent = MainFrame
-Sidebar.BackgroundColor3 = Color3.fromRGB(19, 20, 28)
-Sidebar.BorderSizePixel = 0
-Sidebar.Size = UDim2.new(0, 190, 1, 0)
-Sidebar.ZIndex = 2
+local Sidebar = create("Frame", {
+    Name = "Sidebar",
+    BackgroundColor3 = PANEL,
+    BorderSizePixel = 0,
+    Size = UDim2.new(0, 195, 1, 0),
+    ZIndex = 2
+}, MainFrame)
+addCorner(Sidebar, 18)
 
-local SidebarCorner = Instance.new("UICorner")
-SidebarCorner.CornerRadius = UDim.new(0, 18)
-SidebarCorner.Parent = Sidebar
+local SidebarFill = create("Frame", {
+    BackgroundColor3 = PANEL,
+    BorderSizePixel = 0,
+    Position = UDim2.new(0.75, 0, 0, 0),
+    Size = UDim2.new(0.25, 0, 1, 0),
+    ZIndex = 2
+}, Sidebar)
 
-local SidebarFix = Instance.new("Frame")
-SidebarFix.Parent = Sidebar
-SidebarFix.BackgroundColor3 = Sidebar.BackgroundColor3
-SidebarFix.BorderSizePixel = 0
-SidebarFix.Position = UDim2.new(0.7, 0, 0, 0)
-SidebarFix.Size = UDim2.new(0.3, 0, 1, 0)
+local Brand = create("TextLabel", {
+    BackgroundTransparency = 1,
+    Position = UDim2.new(0, 22, 0, 24),
+    Size = UDim2.new(1, -44, 0, 27),
+    Font = Enum.Font.GothamBold,
+    Text = "SERVER",
+    TextColor3 = TEXT,
+    TextSize = 19,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    ZIndex = 3
+}, Sidebar)
 
-local Logo = Instance.new("TextLabel")
-Logo.Parent = Sidebar
-Logo.BackgroundTransparency = 1
-Logo.Position = UDim2.new(0, 22, 0, 24)
-Logo.Size = UDim2.new(1, -44, 0, 35)
-Logo.Font = Enum.Font.GothamBold
-Logo.Text = "SERVER"
-Logo.TextColor3 = Color3.fromRGB(255, 255, 255)
-Logo.TextSize = 20
-Logo.TextXAlignment = Enum.TextXAlignment.Left
+local BrandAccent = create("TextLabel", {
+    BackgroundTransparency = 1,
+    Position = UDim2.new(0, 22, 0, 48),
+    Size = UDim2.new(1, -44, 0, 22),
+    Font = Enum.Font.GothamSemibold,
+    Text = "FINDER",
+    TextColor3 = ACCENT_HOVER,
+    TextSize = 13,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    ZIndex = 3
+}, Sidebar)
 
-local LogoAccent = Instance.new("TextLabel")
-LogoAccent.Parent = Sidebar
-LogoAccent.BackgroundTransparency = 1
-LogoAccent.Position = UDim2.new(0, 22, 0, 52)
-LogoAccent.Size = UDim2.new(1, -44, 0, 25)
-LogoAccent.Font = Enum.Font.GothamMedium
-LogoAccent.Text = "FINDER"
-LogoAccent.TextColor3 = Color3.fromRGB(120, 105, 255)
-LogoAccent.TextSize = 14
-LogoAccent.TextXAlignment = Enum.TextXAlignment.Left
+local Divider = create("Frame", {
+    BackgroundColor3 = BORDER,
+    BackgroundTransparency = 0.35,
+    BorderSizePixel = 0,
+    Position = UDim2.new(0, 22, 0, 86),
+    Size = UDim2.new(1, -44, 0, 1),
+    ZIndex = 3
+}, Sidebar)
 
-local NavTitle = Instance.new("TextLabel")
-NavTitle.Parent = Sidebar
-NavTitle.BackgroundTransparency = 1
-NavTitle.Position = UDim2.new(0, 22, 0, 112)
-NavTitle.Size = UDim2.new(1, -44, 0, 20)
-NavTitle.Font = Enum.Font.GothamBold
-NavTitle.Text = "NAVIGATION"
-NavTitle.TextColor3 = Color3.fromRGB(105, 108, 125)
-NavTitle.TextSize = 10
-NavTitle.TextXAlignment = Enum.TextXAlignment.Left
+local NavLabel = create("TextLabel", {
+    BackgroundTransparency = 1,
+    Position = UDim2.new(0, 22, 0, 110),
+    Size = UDim2.new(1, -44, 0, 18),
+    Font = Enum.Font.GothamBold,
+    Text = "NAVIGATION",
+    TextColor3 = MUTED,
+    TextSize = 9,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    ZIndex = 3
+}, Sidebar)
 
-local NavButton = Instance.new("TextButton")
-NavButton.Parent = Sidebar
-NavButton.BackgroundColor3 = Color3.fromRGB(43, 40, 66)
-NavButton.BorderSizePixel = 0
-NavButton.Position = UDim2.new(0, 14, 0, 140)
-NavButton.Size = UDim2.new(1, -28, 0, 44)
-NavButton.Font = Enum.Font.GothamSemibold
-NavButton.Text = "   ◈   Servers"
-NavButton.TextColor3 = Color3.fromRGB(235, 233, 255)
-NavButton.TextSize = 13
-NavButton.TextXAlignment = Enum.TextXAlignment.Left
-NavButton.AutoButtonColor = false
+local ServersNav = create("TextButton", {
+    BackgroundColor3 = Color3.fromRGB(45, 42, 71),
+    BorderSizePixel = 0,
+    Position = UDim2.new(0, 13, 0, 137),
+    Size = UDim2.new(1, -26, 0, 45),
+    Font = Enum.Font.GothamSemibold,
+    Text = "   ◈   Servers",
+    TextColor3 = Color3.fromRGB(239, 237, 255),
+    TextSize = 12,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    AutoButtonColor = false,
+    ZIndex = 3
+}, Sidebar)
+addCorner(ServersNav, 10)
 
-local NavCorner = Instance.new("UICorner")
-NavCorner.CornerRadius = UDim.new(0, 10)
-NavCorner.Parent = NavButton
+local NavBar = create("Frame", {
+    BackgroundColor3 = ACCENT,
+    BorderSizePixel = 0,
+    Position = UDim2.new(0, 13, 0, 143),
+    Size = UDim2.new(0, 3, 0, 33),
+    ZIndex = 4
+}, Sidebar)
+addCorner(NavBar, 2)
 
-local Status = Instance.new("TextLabel")
-Status.Parent = Sidebar
-Status.BackgroundTransparency = 1
-Status.Position = UDim2.new(0, 22, 1, -55)
-Status.Size = UDim2.new(1, -44, 0, 20)
-Status.Font = Enum.Font.GothamMedium
-Status.Text = "●  Online"
-Status.TextColor3 = Color3.fromRGB(85, 220, 145)
-Status.TextSize = 11
-Status.TextXAlignment = Enum.TextXAlignment.Left
+local StatusDot = create("Frame", {
+    BackgroundColor3 = GREEN,
+    BorderSizePixel = 0,
+    Position = UDim2.new(0, 22, 1, -49),
+    Size = UDim2.new(0, 8, 0, 8),
+    ZIndex = 3
+}, Sidebar)
+addCorner(StatusDot, 8)
+
+local StatusLabel = create("TextLabel", {
+    BackgroundTransparency = 1,
+    Position = UDim2.new(0, 38, 1, -55),
+    Size = UDim2.new(1, -60, 0, 20),
+    Font = Enum.Font.GothamMedium,
+    Text = "System ready",
+    TextColor3 = Color3.fromRGB(160, 210, 185),
+    TextSize = 10,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    ZIndex = 3
+}, Sidebar)
 
 --// Header
-local Header = Instance.new("Frame")
-Header.Parent = MainFrame
-Header.BackgroundTransparency = 1
-Header.Position = UDim2.new(0, 215, 0, 20)
-Header.Size = UDim2.new(1, -235, 0, 65)
-Header.ZIndex = 3
+local Header = create("Frame", {
+    BackgroundTransparency = 1,
+    Position = UDim2.new(0, 220, 0, 20),
+    Size = UDim2.new(1, -240, 0, 62),
+    ZIndex = 3
+}, MainFrame)
 
-local Title = Instance.new("TextLabel")
-Title.Parent = Header
-Title.BackgroundTransparency = 1
-Title.Size = UDim2.new(1, -100, 0, 30)
-Title.Font = Enum.Font.GothamBold
-Title.Text = "Public Servers"
-Title.TextColor3 = Color3.fromRGB(245, 245, 250)
-Title.TextSize = 22
-Title.TextXAlignment = Enum.TextXAlignment.Left
+local Title = create("TextLabel", {
+    BackgroundTransparency = 1,
+    Position = UDim2.new(0, 0, 0, 0),
+    Size = UDim2.new(1, -115, 0, 30),
+    Font = Enum.Font.GothamBold,
+    Text = "Public Servers",
+    TextColor3 = TEXT,
+    TextSize = 22,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    ZIndex = 4
+}, Header)
 
-local Subtitle = Instance.new("TextLabel")
-Subtitle.Parent = Header
-Subtitle.BackgroundTransparency = 1
-Subtitle.Position = UDim2.new(0, 0, 0, 31)
-Subtitle.Size = UDim2.new(1, -100, 0, 22)
-Subtitle.Font = Enum.Font.Gotham
-Subtitle.Text = "Find an available server and join instantly"
-Subtitle.TextColor3 = Color3.fromRGB(125, 128, 145)
-Subtitle.TextSize = 11
-Subtitle.TextXAlignment = Enum.TextXAlignment.Left
+local Subtitle = create("TextLabel", {
+    BackgroundTransparency = 1,
+    Position = UDim2.new(0, 0, 0, 31),
+    Size = UDim2.new(1, -115, 0, 20),
+    Font = Enum.Font.Gotham,
+    Text = "Browse available servers and join with one click",
+    TextColor3 = MUTED,
+    TextSize = 10,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    ZIndex = 4
+}, Header)
 
-local Close = Instance.new("TextButton")
-Close.Parent = Header
-Close.BackgroundColor3 = Color3.fromRGB(35, 36, 47)
-Close.BorderSizePixel = 0
-Close.Position = UDim2.new(1, -40, 0, 0)
-Close.Size = UDim2.new(0, 38, 0, 38)
-Close.Font = Enum.Font.GothamBold
-Close.Text = "×"
-Close.TextColor3 = Color3.fromRGB(210, 212, 220)
-Close.TextSize = 20
-Close.AutoButtonColor = false
+local Refresh = create("TextButton", {
+    BackgroundColor3 = PANEL_3,
+    BorderSizePixel = 0,
+    Position = UDim2.new(1, -86, 0, 0),
+    Size = UDim2.new(0, 42, 0, 38),
+    Font = Enum.Font.GothamBold,
+    Text = "↻",
+    TextColor3 = TEXT,
+    TextSize = 20,
+    AutoButtonColor = false,
+    ZIndex = 4
+}, Header)
+addCorner(Refresh, 10)
+addStroke(Refresh, BORDER, 1, 0.25)
 
-local CloseCorner = Instance.new("UICorner")
-CloseCorner.CornerRadius = UDim.new(0, 10)
-CloseCorner.Parent = Close
+local Close = create("TextButton", {
+    BackgroundColor3 = PANEL_3,
+    BorderSizePixel = 0,
+    Position = UDim2.new(1, -40, 0, 0),
+    Size = UDim2.new(0, 38, 0, 38),
+    Font = Enum.Font.GothamBold,
+    Text = "×",
+    TextColor3 = TEXT,
+    TextSize = 20,
+    AutoButtonColor = false,
+    ZIndex = 4
+}, Header)
+addCorner(Close, 10)
+addStroke(Close, BORDER, 1, 0.25)
 
-Close.MouseEnter:Connect(function()
-    TweenService:Create(Close, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(185, 55, 75)}):Play()
-end)
-Close.MouseLeave:Connect(function()
-    TweenService:Create(Close, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(35, 36, 47)}):Play()
-end)
+--// Stats bar
+local Stats = create("Frame", {
+    BackgroundColor3 = PANEL_2,
+    BorderSizePixel = 0,
+    Position = UDim2.new(0, 220, 0, 96),
+    Size = UDim2.new(1, -240, 0, 58),
+    ZIndex = 3
+}, MainFrame)
+addCorner(Stats, 12)
+addStroke(Stats, BORDER, 1, 0.35)
 
---// Stats
-local Stats = Instance.new("Frame")
-Stats.Parent = MainFrame
-Stats.BackgroundColor3 = Color3.fromRGB(22, 23, 32)
-Stats.BorderSizePixel = 0
-Stats.Position = UDim2.new(0, 215, 0, 92)
-Stats.Size = UDim2.new(1, -235, 0, 55)
-Stats.ZIndex = 3
+local ServerCount = create("TextLabel", {
+    BackgroundTransparency = 1,
+    Position = UDim2.new(0, 16, 0, 6),
+    Size = UDim2.new(0.5, -16, 0, 21),
+    Font = Enum.Font.GothamBold,
+    Text = "0 SERVERS",
+    TextColor3 = TEXT,
+    TextSize = 12,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    ZIndex = 4
+}, Stats)
 
-local StatsCorner = Instance.new("UICorner")
-StatsCorner.CornerRadius = UDim.new(0, 12)
-StatsCorner.Parent = Stats
+local ServerCountSub = create("TextLabel", {
+    BackgroundTransparency = 1,
+    Position = UDim2.new(0, 16, 0, 28),
+    Size = UDim2.new(0.5, -16, 0, 17),
+    Font = Enum.Font.Gotham,
+    Text = "Available to join",
+    TextColor3 = MUTED,
+    TextSize = 9,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    ZIndex = 4
+}, Stats)
 
-local ServerCount = Instance.new("TextLabel")
-ServerCount.Parent = Stats
-ServerCount.BackgroundTransparency = 1
-ServerCount.Position = UDim2.new(0, 16, 0, 7)
-ServerCount.Size = UDim2.new(0.5, -16, 0, 20)
-ServerCount.Font = Enum.Font.GothamBold
-ServerCount.Text = "0 SERVERS"
-ServerCount.TextColor3 = Color3.fromRGB(225, 225, 235)
-ServerCount.TextSize = 12
-ServerCount.TextXAlignment = Enum.TextXAlignment.Left
+local GameLabel = create("TextLabel", {
+    BackgroundTransparency = 1,
+    Position = UDim2.new(0.5, 0, 0, 0),
+    Size = UDim2.new(0.5, -17, 1, 0),
+    Font = Enum.Font.GothamSemibold,
+    Text = gameName,
+    TextColor3 = ACCENT_HOVER,
+    TextSize = 11,
+    TextXAlignment = Enum.TextXAlignment.Right,
+    TextTruncate = Enum.TextTruncate.AtEnd,
+    ZIndex = 4
+}, Stats)
 
-local ServerCountSub = Instance.new("TextLabel")
-ServerCountSub.Parent = Stats
-ServerCountSub.BackgroundTransparency = 1
-ServerCountSub.Position = UDim2.new(0, 16, 0, 27)
-ServerCountSub.Size = UDim2.new(0.5, -16, 0, 17)
-ServerCountSub.Font = Enum.Font.Gotham
-ServerCountSub.Text = "Available to join"
-ServerCountSub.TextColor3 = Color3.fromRGB(105, 108, 125)
-ServerCountSub.TextSize = 9
-ServerCountSub.TextXAlignment = Enum.TextXAlignment.Left
-
-local GameLabel = Instance.new("TextLabel")
-GameLabel.Parent = Stats
-GameLabel.BackgroundTransparency = 1
-GameLabel.Position = UDim2.new(0.5, 0, 0, 0)
-GameLabel.Size = UDim2.new(0.5, -15, 1, 0)
-GameLabel.Font = Enum.Font.GothamMedium
-GameLabel.Text = gameName
-GameLabel.TextColor3 = Color3.fromRGB(120, 105, 255)
-GameLabel.TextSize = 11
-GameLabel.TextXAlignment = Enum.TextXAlignment.Right
+--// Loading state
+local Loading = create("TextLabel", {
+    BackgroundTransparency = 1,
+    Position = UDim2.new(0, 220, 0, 173),
+    Size = UDim2.new(1, -240, 0, 35),
+    Font = Enum.Font.GothamMedium,
+    Text = "Scanning public servers...",
+    TextColor3 = MUTED,
+    TextSize = 11,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    ZIndex = 4
+}, MainFrame)
 
 --// Server list
-local ServerListFrame = Instance.new("ScrollingFrame")
-ServerListFrame.Name = "ServerListFrame"
-ServerListFrame.Parent = MainFrame
-ServerListFrame.Active = true
-ServerListFrame.BackgroundTransparency = 1
-ServerListFrame.BorderSizePixel = 0
-ServerListFrame.Position = UDim2.new(0, 215, 0, 162)
-ServerListFrame.Size = UDim2.new(1, -235, 1, -180)
-ServerListFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
-ServerListFrame.ScrollBarThickness = 3
-ServerListFrame.ScrollBarImageColor3 = Color3.fromRGB(85, 82, 125)
-ServerListFrame.ZIndex = 3
+local ServerListFrame = create("ScrollingFrame", {
+    Name = "ServerListFrame",
+    Active = true,
+    BackgroundTransparency = 1,
+    BorderSizePixel = 0,
+    Position = UDim2.new(0, 220, 0, 168),
+    Size = UDim2.new(1, -240, 1, -190),
+    CanvasSize = UDim2.new(0, 0, 0, 0),
+    ScrollBarThickness = 3,
+    ScrollBarImageColor3 = Color3.fromRGB(91, 83, 145),
+    ZIndex = 3
+}, MainFrame)
 
-local UIListLayout = Instance.new("UIListLayout")
-UIListLayout.Parent = ServerListFrame
-UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
-UIListLayout.Padding = UDim.new(0, 8)
+local UIListLayout = create("UIListLayout", {
+    SortOrder = Enum.SortOrder.LayoutOrder,
+    Padding = UDim.new(0, 8)
+}, ServerListFrame)
 
-local ServerFrameTemplate = Instance.new("Frame")
-ServerFrameTemplate.Name = "ServerFrame"
-ServerFrameTemplate.Parent = ServerListFrame
-ServerFrameTemplate.BackgroundColor3 = Color3.fromRGB(23, 24, 33)
-ServerFrameTemplate.BorderSizePixel = 0
-ServerFrameTemplate.Size = UDim2.new(1, -5, 0, 68)
-ServerFrameTemplate.Visible = false
+local UIPadding = create("UIPadding", {
+    PaddingRight = UDim.new(0, 5),
+    PaddingBottom = UDim.new(0, 8)
+}, ServerListFrame)
 
-local UICorner_Server = Instance.new("UICorner")
-UICorner_Server.CornerRadius = UDim.new(0, 12)
-UICorner_Server.Parent = ServerFrameTemplate
+local ServerTemplate = create("Frame", {
+    Name = "ServerTemplate",
+    BackgroundColor3 = PANEL_2,
+    BorderSizePixel = 0,
+    Size = UDim2.new(1, -5, 0, 74),
+    Visible = false,
+    ZIndex = 4
+}, ServerListFrame)
+addCorner(ServerTemplate, 12)
+addStroke(ServerTemplate, BORDER, 1, 0.35)
 
-local ServerStroke = Instance.new("UIStroke")
-ServerStroke.Color = Color3.fromRGB(43, 45, 58)
-ServerStroke.Thickness = 1
-ServerStroke.Transparency = 0.25
-ServerStroke.Parent = ServerFrameTemplate
+local ServerIndicator = create("Frame", {
+    BackgroundColor3 = GREEN,
+    BorderSizePixel = 0,
+    Position = UDim2.new(0, 14, 0.5, -18),
+    Size = UDim2.new(0, 4, 0, 36),
+    ZIndex = 5
+}, ServerTemplate)
+addCorner(ServerIndicator, 3)
 
-local ServerInfo = Instance.new("TextLabel")
-ServerInfo.Name = "ServerInfo"
-ServerInfo.Parent = ServerFrameTemplate
-ServerInfo.BackgroundTransparency = 1
-ServerInfo.Position = UDim2.new(0, 16, 0, 9)
-ServerInfo.Size = UDim2.new(1, -145, 0, 48)
-ServerInfo.Font = Enum.Font.GothamMedium
-ServerInfo.Text = "Server"
-ServerInfo.TextColor3 = Color3.fromRGB(225, 225, 232)
-ServerInfo.TextSize = 11
-ServerInfo.TextWrapped = true
-ServerInfo.TextXAlignment = Enum.TextXAlignment.Left
-ServerInfo.TextYAlignment = Enum.TextYAlignment.Center
+local ServerInfo = create("TextLabel", {
+    Name = "ServerInfo",
+    BackgroundTransparency = 1,
+    Position = UDim2.new(0, 29, 0, 10),
+    Size = UDim2.new(1, -160, 0, 54),
+    Font = Enum.Font.GothamMedium,
+    Text = "PUBLIC SERVER",
+    TextColor3 = TEXT,
+    TextSize = 10,
+    TextWrapped = true,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    TextYAlignment = Enum.TextYAlignment.Center,
+    ZIndex = 5
+}, ServerTemplate)
 
-local Join = Instance.new("TextButton")
-Join.Name = "Join"
-Join.Parent = ServerFrameTemplate
-Join.BackgroundColor3 = Color3.fromRGB(106, 91, 230)
-Join.BorderSizePixel = 0
-Join.Position = UDim2.new(1, -115, 0.5, -20)
-Join.Size = UDim2.new(0, 100, 0, 40)
-Join.Font = Enum.Font.GothamBold
-Join.Text = "JOIN  →"
-Join.TextColor3 = Color3.fromRGB(255, 255, 255)
-Join.TextSize = 11
-Join.AutoButtonColor = false
+local Join = create("TextButton", {
+    Name = "Join",
+    BackgroundColor3 = ACCENT,
+    BorderSizePixel = 0,
+    Position = UDim2.new(1, -116, 0.5, -20),
+    Size = UDim2.new(0, 101, 0, 40),
+    Font = Enum.Font.GothamBold,
+    Text = "JOIN  →",
+    TextColor3 = Color3.fromRGB(255, 255, 255),
+    TextSize = 10,
+    AutoButtonColor = false,
+    ZIndex = 5
+}, ServerTemplate)
+addCorner(Join, 10)
 
-local JoinCorner = Instance.new("UICorner")
-JoinCorner.CornerRadius = UDim.new(0, 10)
-JoinCorner.Parent = Join
+--// Floating toggle
+local HideShow = create("TextButton", {
+    Name = "HideShow",
+    BackgroundColor3 = ACCENT,
+    BorderSizePixel = 0,
+    Position = UDim2.new(0, 18, 0.5, -22),
+    Size = UDim2.new(0, 85, 0, 44),
+    Font = Enum.Font.GothamBold,
+    Text = "HIDE",
+    TextColor3 = Color3.fromRGB(255, 255, 255),
+    TextSize = 10,
+    AutoButtonColor = false,
+    ZIndex = 10
+}, ScreenGui)
+addCorner(HideShow, 12)
+addStroke(HideShow, Color3.fromRGB(154, 143, 255), 1, 0.5)
 
-Join.MouseEnter:Connect(function()
-    TweenService:Create(Join, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(128, 112, 255)}):Play()
+--// Hover effects
+Refresh.MouseEnter:Connect(function()
+    tween(Refresh, 0.15, {BackgroundColor3 = Color3.fromRGB(39, 40, 55)})
 end)
-Join.MouseLeave:Connect(function()
-    TweenService:Create(Join, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(106, 91, 230)}):Play()
+Refresh.MouseLeave:Connect(function()
+    tween(Refresh, 0.15, {BackgroundColor3 = PANEL_3})
 end)
 
---// Floating hide button
-local HideShow = Instance.new("TextButton")
-HideShow.Name = "HideShow"
-HideShow.Parent = LowServerFinder
-HideShow.BackgroundColor3 = Color3.fromRGB(106, 91, 230)
-HideShow.BorderSizePixel = 0
-HideShow.Position = UDim2.new(0, 18, 0.5, -22)
-HideShow.Size = UDim2.new(0, 82, 0, 44)
-HideShow.Font = Enum.Font.GothamBold
-HideShow.Text = "HIDE"
-HideShow.TextColor3 = Color3.fromRGB(255, 255, 255)
-HideShow.TextSize = 11
-HideShow.AutoButtonColor = false
+Close.MouseEnter:Connect(function()
+    tween(Close, 0.15, {BackgroundColor3 = RED})
+end)
+Close.MouseLeave:Connect(function()
+    tween(Close, 0.15, {BackgroundColor3 = PANEL_3})
+end)
 
-local HideCorner = Instance.new("UICorner")
-HideCorner.CornerRadius = UDim.new(0, 12)
-HideCorner.Parent = HideShow
+HideShow.MouseEnter:Connect(function()
+    tween(HideShow, 0.15, {BackgroundColor3 = ACCENT_HOVER})
+end)
+HideShow.MouseLeave:Connect(function()
+    tween(HideShow, 0.15, {BackgroundColor3 = ACCENT})
+end)
 
+--// State
 local isHidden = false
-HideShow.MouseButton1Click:Connect(function()
-    if not isHidden then
-        local tweenOut = TweenService:Create(MainFrame, TweenInfo.new(0.25, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-            BackgroundTransparency = 1
-        })
-        tweenOut:Play()
-        tweenOut.Completed:Connect(function()
-            MainFrame.Visible = false
-            HideShow.Text = "SHOW"
-            isHidden = true
-        end)
-    else
-        MainFrame.Visible = true
-        MainFrame.BackgroundTransparency = 1
-        TweenService:Create(MainFrame, TweenInfo.new(0.25, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-            BackgroundTransparency = 0
-        }):Play()
-        HideShow.Text = "HIDE"
-        isHidden = false
-    end
-end)
-
-Close.MouseButton1Click:Connect(function()
-    local tweenClose = TweenService:Create(MainFrame, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.In), {
-        BackgroundTransparency = 1,
-        Size = UDim2.new(0, 760, 0, 470)
-    })
-    tweenClose:Play()
-    tweenClose.Completed:Connect(function()
-        LowServerFinder:Destroy()
-    end)
-end)
-
-UIListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-    ServerListFrame.CanvasSize = UDim2.new(0, 0, 0, UIListLayout.AbsoluteContentSize.Y + 8)
-end)
-
+local isBusy = false
 local loadedServers = 0
 
+local function clearServers()
+    for _, child in ipairs(ServerListFrame:GetChildren()) do
+        if child:IsA("Frame") and child.Name == "ServerFrameClone" then
+            child:Destroy()
+        end
+    end
+    loadedServers = 0
+    ServerCount.Text = "0 SERVERS"
+end
+
 local function createServerEntry(serverData)
-    local clone = ServerFrameTemplate:Clone()
+    local clone = ServerTemplate:Clone()
     clone.Name = "ServerFrameClone"
     clone.Visible = true
+    clone.LayoutOrder = loadedServers + 1
     clone.Parent = ServerListFrame
 
-    local serverInfoLabel = clone:FindFirstChild("ServerInfo")
-    serverInfoLabel.Text = string.format(
-        "PUBLIC SERVER\n👥  %d / %d players     •     ID: %s",
-        serverData.playing,
-        serverData.maxPlayers,
-        tostring(serverData.id):sub(1, 18)
-    )
+    local infoLabel = clone:FindFirstChild("ServerInfo")
+    if infoLabel then
+        infoLabel.Text = string.format(
+            "PUBLIC SERVER\nPlayers: %d / %d    •    ID: %s",
+            tonumber(serverData.playing) or 0,
+            tonumber(serverData.maxPlayers) or 0,
+            tostring(serverData.id):sub(1, 20)
+        )
+    end
 
     local joinButton = clone:FindFirstChild("Join")
-    joinButton.MouseButton1Click:Connect(function()
-        TeleportService:TeleportToPlaceInstance(game.PlaceId, serverData.id, LocalPlayer)
-    end)
+    if joinButton then
+        joinButton.MouseEnter:Connect(function()
+            tween(joinButton, 0.12, {BackgroundColor3 = ACCENT_HOVER})
+        end)
+        joinButton.MouseLeave:Connect(function()
+            tween(joinButton, 0.12, {BackgroundColor3 = ACCENT})
+        end)
+        joinButton.MouseButton1Click:Connect(function()
+            if isBusy then
+                return
+            end
+            isBusy = true
+            joinButton.Text = "JOINING..."
+            tween(joinButton, 0.12, {BackgroundColor3 = Color3.fromRGB(80, 72, 165)})
+
+            local ok, err = pcall(function()
+                TeleportService:TeleportToPlaceInstance(game.PlaceId, serverData.id, LocalPlayer)
+            end)
+
+            if not ok then
+                warn("[ServerFinder] Teleport failed:", err)
+                isBusy = false
+                joinButton.Text = "JOIN  →"
+                tween(joinButton, 0.12, {BackgroundColor3 = ACCENT})
+            end
+        end)
+    end
 
     loadedServers += 1
     ServerCount.Text = string.format("%d SERVERS", loadedServers)
+
+    clone.BackgroundTransparency = 1
+    tween(clone, 0.2, {BackgroundTransparency = 0})
 end
 
 local function fetchServers(cursor)
-    local url = string.format("https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&limit=100", game.PlaceId)
+    if not requestFunc then
+        return nil, "No HTTP request function is available."
+    end
+
+    local url = string.format(
+        "https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&limit=100",
+        game.PlaceId
+    )
+
     if cursor then
-        url = url .. "&cursor=" .. cursor
+        url = url .. "&cursor=" .. HttpService:UrlEncode(cursor)
     end
 
-    local response = requestFunc({
-        Url = url,
-        Method = "GET"
-    })
+    local ok, response = pcall(function()
+        return requestFunc({
+            Url = url,
+            Method = "GET",
+            Headers = {
+                ["Accept"] = "application/json"
+            }
+        })
+    end)
 
-    if response and response.Body then
+    if not ok then
+        return nil, tostring(response)
+    end
+
+    if not response or not response.Body then
+        return nil, "Empty HTTP response."
+    end
+
+    local decodeOk, data = pcall(function()
         return HttpService:JSONDecode(response.Body)
+    end)
+
+    if not decodeOk then
+        return nil, "Invalid JSON response."
     end
+
+    return data
 end
 
---// Entrance animation
-MainFrame.BackgroundTransparency = 1
-MainFrame.Size = UDim2.new(0, 760, 0, 470)
-TweenService:Create(MainFrame, TweenInfo.new(0.35, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-    BackgroundTransparency = 0,
-    Size = UDim2.new(0, 800, 0, 500)
-}):Play()
+local function loadServers()
+    if isBusy then
+        return
+    end
 
-task.spawn(function()
+    isBusy = true
+    clearServers()
+    Loading.Text = "Scanning public servers..."
+    Loading.TextColor3 = MUTED
+    StatusLabel.Text = "Scanning servers..."
+
     local servers = {}
     local cursor = nil
+    local success = true
+    local errorMessage
+    local pages = 0
 
     repeat
-        local data = fetchServers(cursor)
+        pages += 1
+        local data, err = fetchServers(cursor)
         if data and data.data then
             for _, server in ipairs(data.data) do
-                table.insert(servers, server)
+                if tonumber(server.playing) and tonumber(server.maxPlayers)
+                    and server.playing < server.maxPlayers then
+                    table.insert(servers, server)
+                end
             end
             cursor = data.nextPageCursor
         else
+            success = false
+            errorMessage = err or "Unable to load servers."
+            cursor = nil
+        end
+
+        if pages >= 10 then
             break
         end
     until not cursor
 
     table.sort(servers, function(a, b)
-        return a.playing < b.playing
+        return (a.playing or 0) < (b.playing or 0)
     end)
 
     for _, server in ipairs(servers) do
-        if server.playing < server.maxPlayers then
-            createServerEntry(server)
-        end
+        createServerEntry(server)
+    end
+
+    if success then
+        Loading.Text = loadedServers > 0 and "Select a server to join." or "No available server found."
+        Loading.TextColor3 = loadedServers > 0 and MUTED or Color3.fromRGB(220, 175, 95)
+        StatusLabel.Text = loadedServers > 0 and "System ready" or "No servers found"
+    else
+        Loading.Text = "Error: " .. tostring(errorMessage)
+        Loading.TextColor3 = Color3.fromRGB(225, 120, 130)
+        StatusLabel.Text = "Request failed"
+        warn("[ServerFinder] " .. tostring(errorMessage))
+    end
+
+    isBusy = false
+end
+
+UIListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    ServerListFrame.CanvasSize = UDim2.new(
+        0,
+        0,
+        0,
+        UIListLayout.AbsoluteContentSize.Y + 10
+    )
+end)
+
+Refresh.MouseButton1Click:Connect(function()
+    if isBusy then
+        return
+    end
+    tween(Refresh, 0.3, {Rotation = Refresh.Rotation + 180})
+    task.spawn(loadServers)
+end)
+
+Close.MouseButton1Click:Connect(function()
+    if isHidden then
+        return
+    end
+
+    local closeTween = tween(MainFrame, 0.22, {
+        Size = UDim2.new(0, 760, 0, 500),
+        BackgroundTransparency = 1
+    }, Enum.EasingStyle.Back, Enum.EasingDirection.In)
+
+    closeTween.Completed:Connect(function()
+        ScreenGui:Destroy()
+    end)
+end)
+
+HideShow.MouseButton1Click:Connect(function()
+    if isHidden then
+        isHidden = false
+        MainFrame.Visible = true
+        MainFrame.BackgroundTransparency = 1
+        MainFrame.Size = UDim2.new(0, 780, 0, 510)
+        HideShow.Text = "HIDE"
+        tween(MainFrame, 0.25, {
+            Size = UDim2.new(0, 820, 0, 540),
+            BackgroundTransparency = 0
+        })
+    else
+        isHidden = true
+        local hideTween = tween(MainFrame, 0.22, {
+            Size = UDim2.new(0, 780, 0, 510),
+            BackgroundTransparency = 1
+        })
+        hideTween.Completed:Connect(function()
+            MainFrame.Visible = false
+            HideShow.Text = "SHOW"
+        end)
     end
 end)
 
-MakeDraggable(MainFrame)
-MakeDraggable(HideShow)
-)
-MakeDraggable(HideShow)
-```
+makeDraggable(MainFrame)
+makeDraggable(HideShow)
+
+--// Entrance animation
+MainFrame.BackgroundTransparency = 1
+MainFrame.Size = UDim2.new(0, 780, 0, 510)
+tween(MainFrame, 0.32, {
+    Size = UDim2.new(0, 820, 0, 540),
+    BackgroundTransparency = 0
+}, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+
+--// Initial server scan
+task.spawn(loadServers)
